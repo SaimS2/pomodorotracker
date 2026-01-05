@@ -1,8 +1,8 @@
 """Streamlit dashboard for the Pomodoro tracker.
 
-Minimal, clean single-file implementation. Provides a centered card with a
-large timer, start/pause/reset controls, a progress indicator, and a small
-task list. Plays an uploaded alarm or a generated beep on interval completion.
+Provides a single, clean Streamlit app with a centered card UI, large timer,
+start/pause/reset controls, and optional uploaded alarm playback. This file
+replaces earlier duplicated content and fixes syntax issues.
 """
 
 from __future__ import annotations
