@@ -30,3 +30,24 @@ A simple terminal Pomodoro tracker inspired by [pomofocus.io](https://pomofocus.
 ## Development
 - Run the tests with `pytest`.
 - The timer code lives in `src/pomodorotracker/cli.py`; scheduling helpers are in `src/pomodorotracker/scheduler.py`.
+
+## Dashboard (Streamlit)
+
+A minimal Streamlit dashboard is included. You can run it from the repository root:
+
+```powershell
+# (activate your venv first)
+streamlit run my_dashboard.py
+# or run the module inside the package:
+streamlit run src/pomodorotracker/streamlit_app.py
+```
+
+Install the development extras to get Streamlit and pytest:
+
+```powershell
+pip install -e '.[dev]'
+# or install only streamlit:
+pip install streamlit
+```
+
+The dashboard shows the planned intervals and a basic fast demo countdown.
