@@ -1,3 +1,223 @@
+"""Streamlit Pomodoro dashboard — clean single-file implementation.
+
+Features:
+- Giant H:MM:SS timer (large, readable) with responsive sizing
+- Start / Pause / Reset big controls
+- Progress bar and small task list
+- Optional uploaded alarm file or generated beep on completion
+"""
+from __future__ import annotations
+
+import io
+import math
+import struct
+import time
+import wave
+from typing import List, Optional
+
+import streamlit as st
+
+from . import scheduler
+
+
+def build_custom_plan(
+    pomodoros: int,
+    focus_m: int,
+    short_m: int,
+    long_m: int,
+    long_interval: int,
+    repeat: int,
+) -> List[scheduler.Interval]:
+    intervals: List[scheduler.Interval] = []
+    for _ in range(repeat):
+        for index in range(1, pomodoros + 1):
+            intervals.append(
+                scheduler.Interval(kind="focus", label=f"Focus {index}", duration_seconds=focus_m * 60)
+            )
+            if index % long_interval == 0:
+                intervals.append(
+                    scheduler.Interval(kind="long_break", label="Long break", duration_seconds=long_m * 60)
+                )
+            else:
+                intervals.append(
+                    scheduler.Interval(kind="short_break", label=f"Short break {index}", duration_seconds=short_m * 60)
+                )
+    return intervals
+
+
+def generate_beep(duration_s: float = 0.5, freq: float = 880.0, volume: float = 0.5, samplerate: int = 44100) -> bytes:
+    """Return a short WAV byte buffer (mono 16-bit PCM)."""
+    n_samples = int(samplerate * duration_s)
+    amplitude = int(32767 * volume)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(samplerate)
+        for i in range(n_samples):
+            t = i / samplerate
+            sample = int(amplitude * math.sin(2 * math.pi * freq * t))
+            wf.writeframes(struct.pack("<h", sample))
+    return buf.getvalue()
+
+
+def format_hms(seconds: int) -> str:
+    seconds = max(0, int(seconds))
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
+
+
+def main() -> None:
+    st.set_page_config(page_title="Pomodoro", layout="centered")
+
+    st.title("Pomodoro")
+
+    # Sidebar controls
+    with st.sidebar:
+        pomodoros = st.number_input("Pomodoros", min_value=1, value=scheduler.DEFAULTS["pomodoros"])
+        focus_minutes = st.number_input("Focus minutes", min_value=1, value=scheduler.DEFAULTS["focus_minutes"])
+        short_break_minutes = st.number_input("Short break minutes", min_value=1, value=scheduler.DEFAULTS["short_break_minutes"])
+        long_break_minutes = st.number_input("Long break minutes", min_value=1, value=scheduler.DEFAULTS["long_break_minutes"])
+        long_break_interval = st.number_input("Long break every N pomodoros", min_value=1, value=4)
+        repeat = st.number_input("Repeat cycles", min_value=1, value=1)
+        fast = st.checkbox("Fast demo (1s per minute)", value=True)
+        st.write("---")
+        theme = st.selectbox("Theme", ["light", "dark"], index=0)
+        alarm_file = st.file_uploader("Alarm sound (optional)")
+
+    plan = build_custom_plan(
+        pomodoros=int(pomodoros),
+        focus_m=int(focus_minutes),
+        short_m=int(short_break_minutes),
+        long_m=int(long_break_minutes),
+        long_interval=int(long_break_interval),
+        repeat=int(repeat),
+    )
+
+    # CSS
+    accent = "#2563eb" if theme == "light" else "#06b6d4"
+    bg = "#ffffff" if theme == "light" else "#071726"
+    text = "#0f172a" if theme == "light" else "#e6eef6"
+    st.markdown(
+        f"""
+        <style>
+        .block-container {{padding-top:1.25rem}}
+        .card {{max-width:920px; margin:0 auto; background:{bg}; padding:28px; border-radius:16px; box-shadow: 0 12px 36px rgba(2,6,23,0.08)}}
+        .big-timer {{font-size:120px; line-height:1; font-weight:800; color:{text}; text-align:center; margin:6px 0; font-family: 'Segoe UI', Roboto, 'Helvetica Neue', monospace;}}
+        .timer-label {{text-align:center; color:{text}; opacity:0.85; margin-bottom:6px; font-size:18px}}
+        .controls .stButton > button {{height:86px; font-size:22px; border-radius:14px; border:none; background:{accent}; color:white; margin:6px 6px}}
+        .prog {{height:14px; background:#e6eef7; border-radius:999px; overflow:hidden; margin-top:8px}}
+        .prog > .bar {{height:100%; background:linear-gradient(90deg, {accent}, #60a5fa)}}
+        @media (max-width: 600px) {{ .big-timer {{font-size:64px}} .controls .stButton > button {{height:64px; font-size:18px}} }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Tasks
+    if "tasks" not in st.session_state:
+        st.session_state.tasks = []
+    with st.expander("Tasks"):
+        t = st.text_input("New task")
+        if st.button("Add") and t:
+            st.session_state.tasks.append({"text": t, "done": False})
+        for i, task in enumerate(st.session_state.tasks):
+            st.checkbox(task["text"], value=task.get("done", False), key=f"task_{i}")
+
+    # Session state
+    if "current_index" not in st.session_state:
+        st.session_state.current_index = 0
+    if "running" not in st.session_state:
+        st.session_state.running = False
+    if "end_time" not in st.session_state:
+        st.session_state.end_time = 0.0
+    if "remaining" not in st.session_state:
+        st.session_state.remaining = 0
+
+    # Current interval
+    curr: Optional[scheduler.Interval]
+    if st.session_state.current_index < len(plan):
+        curr = plan[st.session_state.current_index]
+        total_seconds = curr.duration_seconds if not fast else max(1, curr.duration_seconds // 60)
+    else:
+        curr = None
+        total_seconds = 0
+
+    # Main card
+    with st.container():
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="timer-label">', unsafe_allow_html=True)
+        st.markdown(f"<div>Pomodoros: <strong>{pomodoros}</strong></div>", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # Label above timer
+        if curr:
+            st.markdown(f"<div class='timer-label'>{curr.label}</div>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div class='timer-label'>No intervals planned</div>", unsafe_allow_html=True)
+
+        # Controls
+        status = st.empty()
+        cols = st.columns([1, 1, 1], gap="small")
+        if cols[0].button("Start"):
+            if curr is not None:
+                if st.session_state.remaining > 0:
+                    st.session_state.end_time = time.time() + st.session_state.remaining
+                else:
+                    st.session_state.end_time = time.time() + total_seconds
+                st.session_state.running = True
+        if cols[1].button("Pause"):
+            st.session_state.running = False
+            if st.session_state.end_time:
+                st.session_state.remaining = max(0, int(st.session_state.end_time - time.time()))
+        if cols[2].button("Reset"):
+            st.session_state.running = False
+            st.session_state.current_index = 0
+            st.session_state.end_time = 0.0
+            st.session_state.remaining = 0
+
+        prog_placeholder = st.empty()
+
+        # Timer display and logic
+        if curr is None:
+            status.markdown("<div class='big-timer'>--:--</div>", unsafe_allow_html=True)
+        else:
+            if st.session_state.running:
+                remaining = int(st.session_state.end_time - time.time())
+                if remaining <= 0:
+                    status.markdown(f"<div class='big-timer'>✓ {curr.label} complete</div>", unsafe_allow_html=True)
+                    try:
+                        alarm_bytes = alarm_file.read() if alarm_file is not None else generate_beep()
+                        st.audio(alarm_bytes)
+                    except Exception:
+                        pass
+                    st.session_state.current_index += 1
+                    st.session_state.running = False
+                    st.session_state.end_time = 0.0
+                    st.session_state.remaining = 0
+                    time.sleep(0.6)
+                    getattr(st, "experimental_rerun")()
+                else:
+                    timer_text = format_hms(remaining)
+                    elapsed = (total_seconds - remaining) if total_seconds > 0 else 0
+                    pct = int(min(100, (elapsed / total_seconds) * 100)) if total_seconds > 0 else 0
+                    status.markdown(f"<div class='big-timer'>{timer_text}</div>", unsafe_allow_html=True)
+                    prog_placeholder.markdown(f"<div class='prog'><div class='bar' style='width:{pct}%'></div></div>", unsafe_allow_html=True)
+                    time.sleep(1)
+                    getattr(st, "experimental_rerun")()
+            else:
+                timer_text = format_hms(st.session_state.remaining if st.session_state.remaining > 0 else total_seconds)
+                status.markdown(f"<div class='big-timer'>{timer_text}</div>", unsafe_allow_html=True)
+                prog_placeholder.markdown(f"<div class='prog'><div class='bar' style='width:0%'></div></div>", unsafe_allow_html=True)
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+
+if __name__ == "__main__":
+    main()
 """Streamlit dashboard for the Pomodoro tracker.
 
 Provides a single, clean Streamlit app with a centered card UI, large timer,
