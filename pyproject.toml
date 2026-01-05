@@ -1,0 +1,19 @@
+[project]
+name = "pomodorotracker"
+version = "0.1.0"
+description = "Simple terminal Pomodoro timer"
+authors = [{name = "Example", email = "example@example.com"}]
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+
+[project.scripts]
+pomodorotracker = "pomodorotracker.cli:main"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
