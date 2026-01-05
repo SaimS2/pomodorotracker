@@ -1,6 +1,6 @@
 # pomodorotracker
 
-A simple terminal Pomodoro tracker inspired by [pomofocus.io](https://pomofocus.io/).
+A simple terminal Pomodoro tracker.
 
 ## Features
 - Command-line timer with configurable focus and break lengths
