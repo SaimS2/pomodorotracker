@@ -9,6 +9,11 @@ from __future__ import annotations
 import time
 from typing import List, Optional
 
+import io
+import math
+import struct
+import wave
+
 import streamlit as st
 
 from . import scheduler
@@ -65,6 +70,34 @@ def main() -> None:
         long_interval=int(long_break_interval),
         repeat=int(repeat),
     )
+
+    # Theme CSS tweaks
+    theme_css = {
+        "light": "body {background:#ffffff;color:#111111}",
+        "dark": "body {background:#0f1720;color:#e6eef6}",
+        "blue": "body {background:#e8f0ff;color:#05204a}",
+        "green": "body {background:#e8fff0;color:#05331a}",
+    }
+    st.markdown(f"<style>{theme_css.get(theme,'')}</style>", unsafe_allow_html=True)
+
+    def generate_beep(duration_s: float = 0.5, freq: float = 880.0, volume: float = 0.5, samplerate: int = 44100) -> bytes:
+        """Generate a short WAV beep and return bytes suitable for st.audio().
+
+        This creates a mono 16-bit PCM WAV in memory.
+        """
+        n_samples = int(samplerate * duration_s)
+        amplitude = int(32767 * volume)
+
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(samplerate)
+            for i in range(n_samples):
+                t = i / samplerate
+                sample = int(amplitude * math.sin(2 * math.pi * freq * t))
+                wf.writeframes(struct.pack("<h", sample))
+        return buf.getvalue()
 
     st.subheader("Planned intervals")
     for it in plan:
@@ -149,10 +182,13 @@ def main() -> None:
                 # interval complete
                 status.markdown(f"### ✓ {curr.label} complete")
                 # play alarm if provided
+                # play alarm: uploaded file preferred, otherwise use generated beep
                 try:
                     if alarm_file is not None:
                         alarm_bytes = alarm_file.read()
-                        st.audio(alarm_bytes, format=None)
+                    else:
+                        alarm_bytes = generate_beep(duration_s=0.6, freq=880.0, volume=0.6)
+                    st.audio(alarm_bytes)
                 except Exception:
                     pass
                 # Auto check task
@@ -182,12 +218,12 @@ def main() -> None:
                             secs = next_interval.duration_seconds if not fast else next_interval.duration_seconds // 60
                             st.session_state.end_time = time.time() + secs
                 time.sleep(1)
-                st.experimental_rerun()
+                getattr(st, "experimental_rerun")()
             else:
                 mins, secs = divmod(remaining, 60)
                 status.markdown(f"<div class='big-timer'>▶ {curr.label}: {mins:02d}:{secs:02d}</div>", unsafe_allow_html=True)
                 time.sleep(1)
-                st.experimental_rerun()
+                getattr(st, "experimental_rerun")()
         else:
             # not running
             if st.session_state.remaining > 0:
