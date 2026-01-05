@@ -1,0 +1,8 @@
+.
+streamlit
+
+# Note:
+# - The leading '.' tells pip to install the package from this repository.
+# - Streamlit Cloud will clone this repo and run `pip install -r requirements.txt`.
+# - The app entry file is `my_dashboard.py` (root) or
+#   `src/pomodorotracker/streamlit_app.py`. When deploying, select `my_dashboard.py`.
