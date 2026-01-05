@@ -71,23 +71,25 @@ def main() -> None:
         repeat=int(repeat),
     )
 
-    # Theme CSS tweaks
-    theme_css = {
-        "light": "body {background:#ffffff;color:#111111}",
-        "dark": "body {background:#0f1720;color:#e6eef6}",
-        "blue": "body {background:#e8f0ff;color:#05204a}",
-        "green": "body {background:#e8fff0;color:#05331a}",
-    }
-    st.markdown(f"<style>{theme_css.get(theme,'')}</style>", unsafe_allow_html=True)
+    # Minimal aesthetic: small CSS for big timer/button only
+    st.markdown(
+        """
+        <style>
+        /* Large central timer */
+        .big-timer {font-size:56px; font-weight:700; text-align:center; margin: 10px 0}
+        /* Big buttons */
+        div.stButton > button {height:64px; width:100%; font-size:20px}
+        /* Slim sidebar */
+        .css-1d391kg {padding: 8px}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     def generate_beep(duration_s: float = 0.5, freq: float = 880.0, volume: float = 0.5, samplerate: int = 44100) -> bytes:
-        """Generate a short WAV beep and return bytes suitable for st.audio().
-
-        This creates a mono 16-bit PCM WAV in memory.
-        """
+        """Generate a short WAV beep (mono 16-bit PCM) in memory."""
         n_samples = int(samplerate * duration_s)
         amplitude = int(32767 * volume)
-
         buf = io.BytesIO()
         with wave.open(buf, "wb") as wf:
             wf.setnchannels(1)
@@ -105,19 +107,15 @@ def main() -> None:
 
     st.write("---")
 
-    # Tasks area
+    # Minimal tasks - small list (optional)
     if "tasks" not in st.session_state:
         st.session_state.tasks = []
-
-    with st.expander("Tasks"):
-        new_task = st.text_input("New task")
-        if st.button("Add task") and new_task:
+    with st.expander("Tasks (optional)"):
+        new_task = st.text_input("Add task")
+        if st.button("Add") and new_task:
             st.session_state.tasks.append({"text": new_task, "done": False})
-        # Render tasks
         for i, t in enumerate(st.session_state.tasks):
-            checked = st.checkbox(t["text"], value=t["done"], key=f"task_{i}")
-            if checked != t["done"]:
-                st.session_state.tasks[i]["done"] = checked
+            st.checkbox(t["text"], value=t["done"], key=f"task_{i}")
 
     # Inject CSS to make the main button big
     st.markdown(
@@ -130,7 +128,7 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    # Big timer display and controls
+    # Big timer display and controls (centered)
     if "current_index" not in st.session_state:
         st.session_state.current_index = 0
     if "running" not in st.session_state:
@@ -149,28 +147,24 @@ def main() -> None:
         curr = None
         total_seconds = 0
 
-    # Controls
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col1:
-        if st.button("Start/Resume"):
-            if curr is not None:
-                # resume from remaining if paused
-                if st.session_state.remaining > 0:
-                    st.session_state.end_time = time.time() + st.session_state.remaining
-                else:
-                    st.session_state.end_time = time.time() + total_seconds
-                st.session_state.running = True
-    with col2:
-        if st.button("Pause"):
-            st.session_state.running = False
-            if st.session_state.end_time:
-                st.session_state.remaining = max(0, int(st.session_state.end_time - time.time()))
-    with col3:
-        if st.button("Reset"):
-            st.session_state.running = False
-            st.session_state.current_index = 0
-            st.session_state.end_time = 0.0
-            st.session_state.remaining = 0
+    # Controls: large single-row buttons for clarity
+    cols = st.columns([1, 1, 1])
+    if cols[0].button("Start"):
+        if curr is not None:
+            if st.session_state.remaining > 0:
+                st.session_state.end_time = time.time() + st.session_state.remaining
+            else:
+                st.session_state.end_time = time.time() + total_seconds
+            st.session_state.running = True
+    if cols[1].button("Pause"):
+        st.session_state.running = False
+        if st.session_state.end_time:
+            st.session_state.remaining = max(0, int(st.session_state.end_time - time.time()))
+    if cols[2].button("Reset"):
+        st.session_state.running = False
+        st.session_state.current_index = 0
+        st.session_state.end_time = 0.0
+        st.session_state.remaining = 0
 
     status = st.empty()
     if curr is None:
@@ -213,26 +207,38 @@ def main() -> None:
                             secs = next_interval.duration_seconds if not fast else next_interval.duration_seconds // 60
                             st.session_state.end_time = time.time() + secs
                     else:
-                        if auto_start_pomodoros:
-                            st.session_state.running = True
-                            secs = next_interval.duration_seconds if not fast else next_interval.duration_seconds // 60
-                            st.session_state.end_time = time.time() + secs
-                time.sleep(1)
-                getattr(st, "experimental_rerun")()
-            else:
-                mins, secs = divmod(remaining, 60)
-                status.markdown(f"<div class='big-timer'>▶ {curr.label}: {mins:02d}:{secs:02d}</div>", unsafe_allow_html=True)
-                time.sleep(1)
-                getattr(st, "experimental_rerun")()
-        else:
-            # not running
-            if st.session_state.remaining > 0:
-                mins, secs = divmod(st.session_state.remaining, 60)
-                status.markdown(f"<div class='big-timer'>▶ {curr.label}: {mins:02d}:{secs:02d}</div>", unsafe_allow_html=True)
-            else:
-                mins, secs = divmod(total_seconds, 60)
-                status.markdown(f"<div class='big-timer'>▶ {curr.label}: {mins:02d}:{secs:02d}</div>", unsafe_allow_html=True)
-
-
-if __name__ == "__main__":
-    main()
+                        # Timer display and progress
+                        status = st.empty()
+                        prog = st.progress(0)
+                        if curr is None:
+                            status.markdown("<div class='big-timer'>No intervals planned</div>", unsafe_allow_html=True)
+                        else:
+                            if st.session_state.running:
+                                remaining = int(st.session_state.end_time - time.time())
+                                if remaining <= 0:
+                                    status.markdown(f"<div class='big-timer'>✓ {curr.label} complete</div>", unsafe_allow_html=True)
+                                    # play alarm (uploaded preferred)
+                                    try:
+                                        alarm_bytes = alarm_file.read() if alarm_file is not None else generate_beep()
+                                        st.audio(alarm_bytes)
+                                    except Exception:
+                                        pass
+                                    # move to next
+                                    st.session_state.current_index += 1
+                                    st.session_state.running = False
+                                    st.session_state.end_time = 0.0
+                                    st.session_state.remaining = 0
+                                    time.sleep(0.8)
+                                    getattr(st, "experimental_rerun")()
+                                else:
+                                    mins, secs = divmod(remaining, 60)
+                                    elapsed = (total_seconds - remaining) if total_seconds > 0 else 0
+                                    pct = int(min(100, (elapsed / total_seconds) * 100)) if total_seconds > 0 else 0
+                                    status.markdown(f"<div class='big-timer'>▶ {curr.label}: {mins:02d}:{secs:02d}</div>", unsafe_allow_html=True)
+                                    prog.progress(pct)
+                                    time.sleep(1)
+                                    getattr(st, "experimental_rerun")()
+                            else:
+                                mins, secs = divmod(st.session_state.remaining if st.session_state.remaining > 0 else total_seconds, 60)
+                                status.markdown(f"<div class='big-timer'>▶ {curr.label}: {mins:02d}:{secs:02d}</div>", unsafe_allow_html=True)
+                                prog.progress(0)
